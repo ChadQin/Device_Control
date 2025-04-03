@@ -121,23 +121,23 @@ class DMM34461A(object):
             self.K34461A.write(cmd)
         # device.local()
 
-    def start_scanning(self, interval_time, meas_param):
-
-        print("start_scanning")
-        while True:
-            if meas_param == '直流电压':
-                print(self.get_volt_dc)
-            elif meas_param == '交流电压':
-                print(self.get_volt_dc)
-            elif meas_param == '直流电流':
-                print(self.get_volt_dc)
-            elif meas_param == '交流电流':
-                print(self.get_volt_dc)
-            elif meas_param == '电阻':
-                print(self.get_volt_dc)
-            else:
-                pass
-            time.sleep(float(interval_time))
+    # def start_scanning(self, interval_time, meas_param):
+    #
+    #     print("start_scanning")
+    #     while True:
+    #         if meas_param == '直流电压':
+    #             print(self.get_volt_dc)
+    #         elif meas_param == '交流电压':
+    #             print(self.get_volt_dc)
+    #         elif meas_param == '直流电流':
+    #             print(self.get_volt_dc)
+    #         elif meas_param == '交流电流':
+    #             print(self.get_volt_dc)
+    #         elif meas_param == '电阻':
+    #             print(self.get_volt_dc)
+    #         else:
+    #             pass
+    #         time.sleep(float(interval_time))
 
 
 

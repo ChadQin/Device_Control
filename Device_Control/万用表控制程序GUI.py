@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 from Keysight_34461A import DMM34461A
 import pyvisa
-
+import time
 
 class MultimeterGUI:
     def __init__(self, master):
@@ -183,6 +183,7 @@ class MultimeterGUI:
         )
         self.param_combobox.current(0)  # 默认选择第一个
         self.param_combobox.pack(side=tk.LEFT, padx=5)
+        self.selected_param = self.param_combobox.get()  # 实时获取当前选择
 
         # ===== 新增间隔输入框 =====
         self.interval_frame = ttk.Frame(self.scan_frame)
@@ -461,17 +462,16 @@ class MultimeterGUI:
 
     def start_scan(self):
         """绑定万用表类的开始扫描方法"""
-        if not hasattr(self, 'multimeter') or not self.multimeter.start_scanning:
+        if not hasattr(self, 'multimeter') or not self.start_scanning( self.interval_value,self.selected_param):
             messagebox.showwarning("警告", "请先连接设备")
             return
 
         try:
             # 调用万用表类的扫描方法
-            selected_param = self.param_combobox.get()  # 实时获取当前选择
-            print(f"当前选择的参数: {selected_param}")  # 输出如"直流电压"
-            set_time = self.interval_value.get()
+            # selected_param = self.param_combobox.get()  # 实时获取当前选择
+            # set_time = self.interval_value.get()
             # print(self.interval_value.get())    #获取间隔值
-            self.multimeter.start_scanning(set_time,selected_param)
+            self.start_scanning( self.interval_value,self.selected_param)
 
             # 更新按钮状态
             self.btn_start_scan.config(state=tk.DISABLED)
@@ -491,6 +491,25 @@ class MultimeterGUI:
         self.btn_stop_scan.config(state=tk.DISABLED)
         self.scan_status.config(text="已停止", foreground="red")
 
+    def start_scanning(self, interval_time, meas_param):
+
+        print("start_scanning")
+        while True:
+            if meas_param == '直流电压':
+                print(self.multimeter.get_volt_dc())
+            elif meas_param == '交流电压':
+                print(self.multimeter.get_volt_dc())
+            elif meas_param == '直流电流':
+                print(self.multimeter.get_volt_dc())
+            elif meas_param == '交流电流':
+                print(self.multimeter.get_volt_dc())
+            elif meas_param == '电阻':
+                print(self.multimeter.get_volt_dc())
+            else:
+                pass
+            sleep_time = float(interval_time.get())  # 关键修改
+            time.sleep(sleep_time)
+
     def validate_number(self, new_value):
         """验证输入是否为有效数字"""
         if new_value == "":
@@ -501,13 +520,14 @@ class MultimeterGUI:
         except ValueError:
             return False
 
-    def get_interval(self):
-        """获取间隔时间（秒）"""
-        try:
-            return float(self.interval_value.get())
-        except ValueError:
-            messagebox.showerror("错误", "请输入有效的数字")
-            return 1.0  # 默认返回1秒
+    # def get_interval(self):
+    #     """获取间隔时间（秒）"""
+    #     try:
+    #         self.interval_value = self.interval_value.get()
+    #         return float(self.interval_value.get())
+    #     except ValueError:
+    #         messagebox.showerror("错误", "请输入有效的数字")
+    #         return 1.0  # 默认返回1秒
 
 
 if __name__ == "__main__":
