@@ -2,16 +2,21 @@ import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 from Keysight_34461A import DMM34461A
 import pyvisa
-import time
+import time,threading,logging
+
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
 
 class MultimeterGUI:
     def __init__(self, master):
         self.master = master
+        self.master.protocol("WM_DELETE_WINDOW", self.on_closing)  # 捕获窗口关闭事件
         self.master.iconbitmap('./resources/steam.ico')
         self.multimeter = None  # 延迟初始化
         self.connection_status = False
+        self.scan_thread = None
+        self.stop_event = threading.Event()  # 使用Event代替布尔标志
         self.available_devices = []
-
         self.create_widgets()
         self.refresh_devices()  # 启动时自动扫描设备
 
@@ -219,14 +224,34 @@ class MultimeterGUI:
         self.output_frame.grid_columnconfigure(0, weight=1)
         self.output_frame.grid_rowconfigure(0, weight=1)
 
-        self.output_text = scrolledtext.ScrolledText(self.output_frame, wrap=tk.WORD)
-        self.output_text.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")  # 改用grid布局
+        self.output_text = scrolledtext.ScrolledText(
+            self.output_frame,
+            wrap=tk.WORD,
+            height=10  # 设置固定行数
+        )
+        self.output_text.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
+        self.output_text.configure(font=('Courier New', 9))  # 可选等宽字体
+
+        # 新增退出按钮
+        self.btn_exit = ttk.Button(
+            self.control_frame,
+            text="退出",
+            command=self.confirm_exit,
+            style="TButton"
+        )
+        self.btn_exit.grid(row=0, column=3, padx=5, pady=2)  # 新增第4列
+
+        pass
 
 
 
     def update_status(self, message, color="black"):
-        """更新状态栏"""
+        """仅更新状态标签"""
         self.status_label.config(text=message, foreground=color)
+        pass
+
+    def update_output(self, message):
+        """更新输出信息框"""
         self.output_text.insert(tk.END, f"{message}\n")
         self.output_text.see(tk.END)
 
@@ -256,11 +281,10 @@ class MultimeterGUI:
 
         try:
             # ============= 保持原有连接逻辑 =============
-            self.multimeter = DMM34461A()  # 假设类已修改为延迟连接
+            self.multimeter = DMM34461A()
             self.multimeter.K34461A = self.multimeter.rm.open_resource(selected_device)
-
             self.connection_status = True
-            self.update_status(f"已连接至 {selected_device}", "green")
+            self.update_status(f"已连接至 {selected_device}", "green")  # 保持原有状态更新
             self.btn_connect.config(state=tk.DISABLED)
             self.btn_disconnect.config(state=tk.NORMAL)
             self.enable_measure_buttons(True)
@@ -284,37 +308,25 @@ class MultimeterGUI:
                 self.btn_info.config(state=tk.DISABLED)  # 确保失败时保持禁用
                 self.btn_start_scan.config(state=tk.DISABLED)
 
+        pass
+
     def disconnect_device(self):
-        """断开设备连接（新增设备信息按钮控制）"""
         try:
             if self.multimeter and self.multimeter.K34461A:
-                # 原有断开逻辑
                 self.multimeter.K34461A.close()
                 self.connection_status = False
                 self.update_status("连接已断开", "orange")
                 self.btn_connect.config(state=tk.NORMAL)
                 self.btn_disconnect.config(state=tk.DISABLED)
                 self.enable_measure_buttons(False)
-
-                # 新增设备信息按钮控制
-                if hasattr(self, 'btn_info'):
-                    self.btn_info.config(state=tk.DISABLED)  # 关键修改点
-
-                # 可选：清除设备信息缓存
-                if hasattr(self, '_clear_device_info_cache'):
-                    self._clear_device_info_cache()
-
+                self.btn_info.config(state=tk.DISABLED)
+                self.stop_event.set()
+            logging.debug("Device disconnected")
         except Exception as e:
-            # 确保异常时仍保持正确状态
-            self.connection_status = False
-            if hasattr(self, 'btn_info'):
-                self.btn_info.config(state=tk.DISABLED)  # 强制禁用
-
             self.update_status(f"断开失败: {str(e)}", "red")
-
-            # 可选：恢复连接按钮为可用状态
             self.btn_connect.config(state=tk.NORMAL)
             self.btn_disconnect.config(state=tk.DISABLED)
+            logging.error(f"Disconnect error: {str(e)}")
 
     def show_device_info(self):
         """显示设备详细信息"""
@@ -395,27 +407,24 @@ class MultimeterGUI:
         if not self.connection_status:
             messagebox.showwarning("警告", "请先连接设备")
             return
-
         try:
-            voltage = self.multimeter.get_volt_dc()  # 调用电压测量方法
-            self.update_status(f"直流电压测量值: {voltage:.6f} V")
+            voltage = self.multimeter.get_volt_dc()
+            self.update_output(f"直流电压测量值: {voltage:.6f} V")  # 使用update_output
             self.multimeter.local()
         except Exception as e:
-            self.update_status(f"测量失败: {str(e)}", "red")
+            self.update_output(f"测量失败: {str(e)}")
             messagebox.showerror("测量错误", f"电压测量时出错: {str(e)}")
 
     def measure_ac_voltage(self):
-        """测量电压"""
         if not self.connection_status:
             messagebox.showwarning("警告", "请先连接设备")
             return
-
         try:
-            voltage = self.multimeter.get_volt_ac()  # 调用电压测量方法
-            self.update_status(f"交流电压测量值: {voltage:.6f} V")
+            voltage = self.multimeter.get_volt_ac()
+            self.update_output(f"交流电压测量值: {voltage:.6f} V")
             self.multimeter.local()
         except Exception as e:
-            self.update_status(f"测量失败: {str(e)}", "red")
+            self.update_output(f"测量失败: {str(e)}")
             messagebox.showerror("测量错误", f"电压测量时出错: {str(e)}")
 
     def measure_dc_current(self):
@@ -426,10 +435,10 @@ class MultimeterGUI:
 
         try:
             current = self.multimeter.get_curr_dc()  # 调用电流测量方法
-            self.update_status(f"直流电流测量值: {current:.6f} A")
+            self.update_output(f"直流电流测量值: {current:.6f} A")
             self.multimeter.local()
         except Exception as e:
-            self.update_status(f"测量失败: {str(e)}", "red")
+            self.update_output(f"测量失败: {str(e)}")
             messagebox.showerror("测量错误", f"电流测量时出错: {str(e)}")
 
     def measure_ac_current(self):
@@ -440,10 +449,10 @@ class MultimeterGUI:
 
         try:
             current = self.multimeter.get_curr_dc()  # 调用电流测量方法
-            self.update_status(f"交流电流测量值: {current:.6f} A")
+            self.update_output(f"交流电流测量值: {current:.6f} A")
             self.multimeter.local()
         except Exception as e:
-            self.update_status(f"测量失败: {str(e)}", "red")
+            self.update_output(f"测量失败: {str(e)}")
             messagebox.showerror("测量错误", f"电流测量时出错: {str(e)}")
 
     def measure_resistance(self):
@@ -454,61 +463,134 @@ class MultimeterGUI:
 
         try:
             resistance = self.multimeter.get_immp()  # 调用电阻测量方法
-            self.update_status(f"电阻测量值: {resistance:.6f} Ω")
-            self.multimeter.local()
+            print(type(resistance))
+            if resistance > 100000000:
+                self.update_output("overload Ω")
+                self.multimeter.local()
+            else:
+                self.update_output(f"电阻测量值: {resistance:.6f} Ω")
+                self.multimeter.local()
         except Exception as e:
-            self.update_status(f"测量失败: {str(e)}", "red")
+            self.update_output(f"测量失败: {str(e)}")
             messagebox.showerror("测量错误", f"电阻测量时出错: {str(e)}")
 
     def start_scan(self):
-        """绑定万用表类的开始扫描方法"""
-        if not hasattr(self, 'multimeter') or not self.start_scanning( self.interval_value,self.selected_param):
+        """启动扫描线程"""
+        if not self.connection_status:
             messagebox.showwarning("警告", "请先连接设备")
             return
-
-        try:
-            # 调用万用表类的扫描方法
-            # selected_param = self.param_combobox.get()  # 实时获取当前选择
-            # set_time = self.interval_value.get()
-            # print(self.interval_value.get())    #获取间隔值
-            self.start_scanning( self.interval_value,self.selected_param)
-
-            # 更新按钮状态
+        if self.scan_thread is None or not self.scan_thread.is_alive():
+            self.stop_event.clear()
+            self.scan_thread = threading.Thread(target=self.start_scanning)
+            self.scan_thread.start()
             self.btn_start_scan.config(state=tk.DISABLED)
             self.btn_stop_scan.config(state=tk.NORMAL)
             self.scan_status.config(text="扫描中...", foreground="green")
-
-        except Exception as e:
-            messagebox.showerror("错误", f"启动扫描失败: {str(e)}")
+        logging.debug("Scan started")
 
     def stop_scan(self):
+        """停止扫描线程"""
+        if self.scan_thread and self.scan_thread.is_alive():
+            self.stop_event.set()
+            self.master.after(100, self.join_scan_thread)
+        else:
+            self.update_ui_after_stop()
+        logging.debug("Stop scan requested")
+
+    def join_scan_thread(self):
+        if self.scan_thread and self.scan_thread.is_alive():
+            logging.debug("Waiting for scan thread to join...")
+            self.scan_thread.join(timeout=2)  # 设置2秒超时
+            if self.scan_thread.is_alive():
+                logging.warning("Scan thread forced termination")
+                # 强制终止线程（谨慎使用）
+                self.scan_thread._stop()
+            logging.debug("Scan thread joined")
+        self.update_ui_after_stop()
+
+    def update_ui_after_stop(self):
+        """更新UI状态"""
+        self.btn_start_scan.config(state=tk.NORMAL)
+        self.btn_stop_scan.config(state=tk.DISABLED)
+        self.scan_status.config(text="已停止", foreground="red")
+        logging.debug("UI updated after stop")
+
+    def start_scanning(self):
+        try:
+            while not self.stop_event.is_set():
+                meas_param = self.param_combobox.get()
+                try:
+                    interval = float(self.interval_value.get())
+                except ValueError:
+                    interval = 1.0
+
+                try:
+                    if self.stop_event.is_set():
+                        break
+
+                    logging.debug(f"Starting measurement for {meas_param}")
+                    start_time = time.time()
+                    if meas_param == '直流电压':
+                        param = self.multimeter.get_volt_dc()
+                    elif meas_param == '交流电压':
+                        param = self.multimeter.get_volt_ac()
+                    elif meas_param == '直流电流':
+                        param = self.multimeter.get_curr_dc()
+                    elif meas_param == '交流电流':
+                        param = self.multimeter.get_curr_ac()
+                    elif meas_param == '电阻':
+                        param = self.multimeter.get_immp()
+                    else:
+                        param = None
+
+                    end_time = time.time()
+                    logging.debug(f"{meas_param} took {end_time - start_time:.3f}s")
+
+                    if self.stop_event.is_set():
+                        break
+
+                    msg = self.format_measurement(meas_param, param)
+                    self.master.after(0, self.update_output, msg)  # 使用update_output
+
+                except Exception as e:
+                    self.master.after(0, self.update_output, f"扫描错误: {str(e)}")
+                    logging.error(f"Scan error: {str(e)}")
+                    break
+
+                time.sleep(interval)
+        except Exception as e:
+            logging.error(f"Unexpected error in scan thread: {str(e)}")
+        finally:
+            self.master.after(0, self.update_ui_after_stop)
+
+    def confirm_exit(self):
+        """显示确认退出对话框"""
+        if messagebox.askyesno("退出确认", "确认要退出程序吗？"):
+            self.master.destroy()
+
+    def on_closing(self):
+        """处理窗口关闭事件"""
+        self.confirm_exit()
+
+    def format_measurement(self, meas_param, param):
+        if meas_param == '电阻' and param > 1e8:
+            return "电阻测量值: overload Ω"
+        elif param is not None:
+            return f"{meas_param}测量值: {param:.6f} {'V' if '电压' in meas_param else 'A' if '电流' in meas_param else 'Ω'}"
+        else:
+            return "未知测量结果"
+
+
+    def stop_scanning(self):
         """绑定万用表类的停止扫描方法"""
-        if hasattr(self, 'multimeter'):
-            self.multimeter.stop_scanning()
+        self.stop_flag = True
+        if self.scan_thread is not None and self.scan_thread.is_alive():
+            self.scan_thread.join()  # 等待线程结束
 
         # 更新按钮状态
         self.btn_start_scan.config(state=tk.NORMAL)
         self.btn_stop_scan.config(state=tk.DISABLED)
         self.scan_status.config(text="已停止", foreground="red")
-
-    def start_scanning(self, interval_time, meas_param):
-
-        print("start_scanning")
-        while True:
-            if meas_param == '直流电压':
-                print(self.multimeter.get_volt_dc())
-            elif meas_param == '交流电压':
-                print(self.multimeter.get_volt_dc())
-            elif meas_param == '直流电流':
-                print(self.multimeter.get_volt_dc())
-            elif meas_param == '交流电流':
-                print(self.multimeter.get_volt_dc())
-            elif meas_param == '电阻':
-                print(self.multimeter.get_volt_dc())
-            else:
-                pass
-            sleep_time = float(interval_time.get())  # 关键修改
-            time.sleep(sleep_time)
 
     def validate_number(self, new_value):
         """验证输入是否为有效数字"""
