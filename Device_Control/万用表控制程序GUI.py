@@ -3,6 +3,9 @@ from tkinter import ttk, messagebox, scrolledtext
 from Keysight_34461A import DMM34461A
 import pyvisa
 import time,threading,logging
+from datetime import datetime  # 新增导入
+from tkinter import filedialog  # 新增导入
+import re
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -218,9 +221,8 @@ class MultimeterGUI:
         # 调整主窗口行权重
         self.master.rowconfigure(4, weight=0)
 
-        # 输出信息区域
         self.output_frame = ttk.LabelFrame(self.master, text="输出信息")
-        self.output_frame.grid(row=5, column=0, padx=10, pady=5, sticky="nsew")  # 使用nsew填充
+        self.output_frame.grid(row=5, column=0, padx=10, pady=5, sticky="nsew")
         self.output_frame.grid_columnconfigure(0, weight=1)
         self.output_frame.grid_rowconfigure(0, weight=1)
 
@@ -230,7 +232,13 @@ class MultimeterGUI:
             height=10  # 设置固定行数
         )
         self.output_text.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
-        self.output_text.configure(font=('Courier New', 9))  # 可选等宽字体
+
+        self.output_text.tag_config('chinese', font=('仿宋_GB2312', 10))
+        self.output_text.tag_config('number', font=('Calibri', 11))
+        self.output_text.tag_config('english', font=('Calibri', 11))
+
+        # 插入示例文本
+        self.insert_text_with_tags("此处为测量数据实时显示栏\n")
 
         # 新增退出按钮
         self.btn_exit = ttk.Button(
@@ -240,6 +248,37 @@ class MultimeterGUI:
             style="TButton"
         )
         self.btn_exit.grid(row=0, column=3, padx=5, pady=2)  # 新增第4列
+
+        # 输出控制按钮
+        output_control_frame = ttk.Frame(self.output_frame)
+        output_control_frame.grid(row=1, column=0, sticky="ew")
+        output_control_frame.grid_columnconfigure([0, 1], weight=1)  # 设置列权重
+
+        self.btn_clear = ttk.Button(
+            output_control_frame,
+            text="清空输出",
+            command=self.clear_output,
+            style="Small.TButton"
+        )
+        self.btn_clear.grid(row=0, column=0, padx=5, pady=2, sticky="ew")
+
+        self.btn_save = ttk.Button(
+            output_control_frame,
+            text="导出数据",
+            command=self.export_output,
+            style="Small.TButton"
+        )
+        self.btn_save.grid(row=0, column=1, padx=5, pady=2, sticky="ew")
+
+        # 定义小按钮样式
+        style = ttk.Style()
+        style.configure("Small.TButton",
+                        padding=(5, 2),  # 减少垂直内边距
+                        relief="flat",
+                        font=('TkDefaultFont', 9))  # 更小的字体
+
+        # 调整输出框架行权重
+        self.output_frame.grid_rowconfigure(1, weight=0)  # 固定控制按钮行高度
 
         pass
 
@@ -251,9 +290,12 @@ class MultimeterGUI:
         pass
 
     def update_output(self, message):
-        """更新输出信息框"""
-        self.output_text.insert(tk.END, f"{message}\n")
-        self.output_text.see(tk.END)
+        """带毫秒级时间戳的输出更新（修改后）"""
+        now = datetime.now()
+        timestamp = now.strftime("%Y-%m-%d %H:%M:%S") + f".{now.microsecond // 1000:03d}"
+        formatted_message = f"[{timestamp}] {message}\n"
+        self.insert_text_with_tags(formatted_message)  # 关键修改：使用标签插入
+        self.output_text.after(0, self.output_text.see, tk.END)
 
     def refresh_devices(self):
         """刷新可用设备列表"""
@@ -563,6 +605,26 @@ class MultimeterGUI:
         finally:
             self.master.after(0, self.update_ui_after_stop)
 
+    def export_output(self):
+        """导出输出信息到文件"""
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".txt",
+            filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")],
+            title="保存数据"
+        )
+        if file_path:
+            try:
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(self.output_text.get(1.0, tk.END))
+                messagebox.showinfo("导出成功", "数据已保存到指定文件")
+            except Exception as e:
+                messagebox.showerror("导出失败", f"保存文件时出错: {str(e)}")
+
+    def clear_output(self):
+        """清空输出信息"""
+        self.output_text.delete(1.0, tk.END)
+        self.update_output("输出信息已清空")
+
     def confirm_exit(self):
         """显示确认退出对话框"""
         if messagebox.askyesno("退出确认", "确认要退出程序吗？"):
@@ -602,19 +664,30 @@ class MultimeterGUI:
         except ValueError:
             return False
 
-    # def get_interval(self):
-    #     """获取间隔时间（秒）"""
-    #     try:
-    #         self.interval_value = self.interval_value.get()
-    #         return float(self.interval_value.get())
-    #     except ValueError:
-    #         messagebox.showerror("错误", "请输入有效的数字")
-    #         return 1.0  # 默认返回1秒
+    def insert_text_with_tags(self, text):
+        for char in text:
+            if re.match(r'[\u4e00-\u9fff]', char):
+                tag = 'chinese'
+            elif char.isdigit():
+                tag = 'number'
+            elif char.isalpha():
+                tag = 'english'
+            else:
+                tag = None
+            if tag:
+                self.output_text.insert(tk.END, char, tag)
+            else:
+                self.output_text.insert(tk.END, char)
+
+    def display_scanned_data(self, scanned_data):
+        # 在扫描数据前添加换行符，使输出更清晰
+        self.output_text.insert(tk.END, '\n')
+        self.insert_text_with_tags(scanned_data)
 
 
 if __name__ == "__main__":
     root = tk.Tk()
     root.title("万用表控制程序")
-    root.geometry("800x600")
+    root.geometry("800x650")
     app = MultimeterGUI(root)
     root.mainloop()
