@@ -1,4 +1,4 @@
-# [自动排班系统][0]
+# [KYESIGHT43361A上位机控制程序][0]
 [![Download][1]][2]  [![contact][3]][4]  
   
 
@@ -12,7 +12,7 @@ https://github.com/ChadQin/Device_Control
 
 
 
-Update time:  2025/4/2  
+Update time:  2025/4/7  
 Author:  Chad Qin  
 
 
